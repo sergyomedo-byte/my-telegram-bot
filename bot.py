@@ -2,6 +2,7 @@ import os
 import logging
 import time
 import json
+import threading
 import http.server
 import socketserver
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -23,8 +24,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Простой HTTP handler для проверки работоспособности
-class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
+# Простой HTTP server для Render
+class HealthHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
@@ -37,8 +38,8 @@ class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
 
 def run_health_server():
     port = int(os.environ.get("PORT", 5000))
-    with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
-        logger.info(f"Health check server running on port {port}")
+    with socketserver.TCPServer(("", port), HealthHandler) as httpd:
+        logger.info(f"Health server running on port {port}")
         httpd.serve_forever()
 
 # Конфигурация
@@ -77,7 +78,7 @@ def get_main_keyboard():
 def get_cancel_keyboard():
     return InlineKeyboardMarkup([[InlineKeyboardButton("Отмена", callback_data="cancel")]])
 
-# Функции для работы с новостей
+# Функции для работы с новостями
 def get_news_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'news.json')
 
@@ -129,7 +130,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     logger.info(f"Received /start from chat_id: {chat_id}")
     await update.message.reply_text(
-        "Добро пожаловать в 'Т商品 из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
+        "Добро пожаловать в 'Товары из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
         reply_markup=get_main_keyboard()
     )
 
@@ -358,7 +359,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 # Запуск бота
-def main():
+def run_bot():
     logger.info("Starting Telegram bot...")
     
     application = Application.builder().token(TOKEN).build()
@@ -377,6 +378,16 @@ def main():
     # Запуск
     logger.info("Bot starting polling...")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+
+def main():
+    logger.info("Application starting...")
+    
+    # Запускаем HTTP сервер в отдельном потоке
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    
+    # Запускаем бота в основном потоке
+    run_bot()
 
 if __name__ == '__main__':
     main()
