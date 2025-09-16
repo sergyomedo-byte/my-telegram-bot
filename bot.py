@@ -2,9 +2,8 @@ import os
 import logging
 import time
 import json
-import threading
-import asyncio
-from flask import Flask
+import http.server
+import socketserver
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -24,19 +23,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Создаем простейший веб-сервер для Render
-app = Flask(__name__)
+# Простой HTTP handler для проверки работоспособности
+class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Bot is alive!')
+        else:
+            self.send_response(404)
+            self.end_headers()
 
-@app.route('/')
-def home():
-    return "Bot is alive!", 200
-
-def run_web_server():
-    # Render сам устанавливает переменную окружения PORT, которую нужно использовать
+def run_health_server():
     port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Starting web server on port {port}")
-    # Запускаем сервер. Важно: host='0.0.0.0' - слушаем все входящие подключения
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
+        logger.info(f"Health check server running on port {port}")
+        httpd.serve_forever()
 
 # Конфигурация
 TOKEN = os.getenv('TOKEN', '8091371448:AAF7eynXFflA4VO3lz7a1vHREN0tM81FOl4')
@@ -126,7 +129,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     logger.info(f"Received /start from chat_id: {chat_id}")
     await update.message.reply_text(
-        "Добро пожаловать в 'Товары из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
+        "Добро пожаловать в 'Т商品 из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
         reply_markup=get_main_keyboard()
     )
 
@@ -354,49 +357,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data.clear()
         return
 
-# Запуск бота в отдельном потоке с правильным event loop
-def run_bot():
-    try:
-        logger.info("Starting Telegram bot...")
-        
-        # Создаем новый event loop для этого потока
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        application = Application.builder().token(TOKEN).build()
-
-        # Обработчики команд
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("cancel", cancel_command))
-        application.add_handler(news_conv_handler)
-
-        # Обработчики callback и сообщений
-        application.add_handler(CallbackQueryHandler(handle_button))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(MessageHandler(filters.PHOTO, handle_message))
-        application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
-
-        # Запуск
-        logger.info("Bot starting polling...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-        
-    except Exception as e:
-        logger.error(f"Error in bot thread: {e}")
-        raise
-
-# Главная функция запуска
+# Запуск бота
 def main():
-    logger.info("Application starting...")
+    logger.info("Starting Telegram bot...")
     
-    # Запускаем бота в отдельном потоке
-    bot_thread = threading.Thread(target=run_bot, name="BotThread")
-    bot_thread.daemon = True
-    bot_thread.start()
-    
-    logger.info("Bot thread started, starting web server...")
-    
-    # Запускаем веб-сервер в основном потоке
-    run_web_server()
+    application = Application.builder().token(TOKEN).build()
+
+    # Обработчики команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("cancel", cancel_command))
+    application.add_handler(news_conv_handler)
+
+    # Обработчики callback и сообщений
+    application.add_handler(CallbackQueryHandler(handle_button))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_message))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
+
+    # Запуск
+    logger.info("Bot starting polling...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
