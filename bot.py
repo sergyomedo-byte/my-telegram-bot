@@ -2,6 +2,8 @@ import os
 import logging
 import time
 import json
+import threading
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -20,6 +22,19 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Создаем простейший веб-сервер для Render
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is alive!", 200
+
+def run_web_server():
+    # Render сам устанавливает переменную окружения PORT, которую нужно использовать
+    port = int(os.environ.get("PORT", 5000))
+    # Запускаем сервер. Важно: host='0.0.0.0' - слушаем все входящие подключения
+    app.run(host='0.0.0.0', port=port)
 
 # Конфигурация
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8091371448:AAF7eynXFflA4VO3lz7a1vHREN0tM81FOl4')
@@ -79,12 +94,12 @@ async def cancel_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            "❌ Запрос отменён. Выберите категорию:",
+            "❌ Запрос отменён. Выберите категориу:",
             reply_markup=get_main_keyboard()
         )
 
 async def send_to_group(context: ContextTypes.DEFAULT_TYPE, message: str, photo=None, document=None, username=None, request_id=None, category=None):
-    logger.info(f"Sending to group {GROUP_ID}: {message} at 10:48 AM CEST, 15.08.2025")
+    logger.info(f"Sending to group {GROUP_ID}: {message}")
     try:
         full_message = f"Запрос #{request_id} из категории '{category}' от @{username if username else 'неизвестный'}:\n{message}"
         sent = await context.bot.send_message(chat_id=GROUP_ID, text=full_message)
@@ -103,7 +118,7 @@ async def send_to_group(context: ContextTypes.DEFAULT_TYPE, message: str, photo=
 # Обработчики
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    logger.info(f"Received /start from chat_id: {chat_id} at 10:48 AM CEST, 15.08.2025")
+    logger.info(f"Received /start from chat_id: {chat_id}")
     await update.message.reply_text(
         f"Добро пожаловать в 'Товары из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
         reply_markup=get_main_keyboard()
@@ -113,7 +128,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-    logger.info(f"Button pressed: {data} at 10:48 AM CEST, 15.08.2025")
+    logger.info(f"Button pressed: {data}")
 
     if data == "cancel":
         await cancel_request(update, context)
@@ -273,7 +288,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo
     document = update.message.document
     username = update.effective_user.username
-    logger.info(f"Received message from @{username}: {text} at 10:48 AM CEST, 15.08.2025")
+    logger.info(f"Received message from @{username}: {text}")
 
     if text and text.lower() == "отмена":
         await cancel_request(update, context)
@@ -327,8 +342,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data.clear()
         return
 
-# Запуск бота
-def main():
+# Запуск бота в отдельном потоке
+def run_bot():
     application = Application.builder().token(TOKEN).build()
 
     # Обработчики команд
@@ -343,6 +358,17 @@ def main():
 
     # Запуск
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+# Главная функция запуска
+def main():
+    # Запускаем бота в отдельном потоке
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True  # Поток завершится, если завершится основной
+    bot_thread.start()
+    
+    # Запускаем веб-сервер в основном потоке
+    # Это заблокирует выполнение, что и нужно - сервер будет работать постоянно
+    run_web_server()
 
 if __name__ == '__main__':
     main()
