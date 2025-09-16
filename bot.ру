@@ -1,0 +1,85 @@
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
+
+# Замените на ваш токен от @BotFather
+TOKEN = "YOUR_BOT_TOKEN"  # Вставьте токен сюда
+GROUP_ID = -123456789     # Замените на ID вашей группы
+
+def get_main_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("Запчасти", callback_data="category_Запчасти")],
+        [InlineKeyboardButton("Кузов", callback_data="category_Кузов")],
+        [InlineKeyboardButton("Интерьер", callback_data="category_Интерьер")],
+        [InlineKeyboardButton("Шины", callback_data="category_Шины")],
+        [InlineKeyboardButton("Свободный запрос", callback_data="free_request")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_id_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("Ввести VIN", callback_data="id_VIN")],
+        [InlineKeyboardButton("Ввести номер кузова", callback_data="id_Кузова")],
+        [InlineKeyboardButton("Указать марку/модель", callback_data="id_Марка")],
+        [InlineKeyboardButton("Отмена", callback_data="cancel")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    print(f"Received /start from chat_id: {chat_id}")
+    if chat_id == GROUP_ID:
+        await update.message.reply_text("Привет! Вы в группе поставщиков.", reply_markup=get_main_keyboard())
+    else:
+        await update.message.reply_text("Привет! Выберите категорию:", reply_markup=get_main_keyboard())
+
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    data = query.data
+    print(f"Received button from chat_id: {chat_id}, data: {data}")
+
+    if data.startswith("category_"):
+        category = data.replace("category_", "")
+        context.user_data['category'] = category
+        await query.edit_message_text("Выберите способ идентификации:", reply_markup=get_id_keyboard())
+    elif data.startswith("id_"):
+        if data == "cancel":
+            del context.user_data['category']
+            await query.edit_message_text("Выбор отменён. Выберите категорию:", reply_markup=get_main_keyboard())
+        else:
+            context.user_data['identifier_type'] = data.replace("id_", "")
+            await query.edit_message_text(f"Введите {context.user_data['identifier_type'].lower()}:")
+    elif data == "free_request":
+        await query.edit_message_text("Введите ваш запрос (текст, фото или видео):")
+        context.user_data['free_request'] = True
+
+async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    text = update.message.text
+    print(f"Received input from chat_id: {chat_id}, text: {text}")
+    if 'category' in context.user_data and 'identifier_type' in context.user_data:
+        identifier = text
+        category = context.user_data['category']
+        identifier_type = context.user_data['identifier_type']
+        message = f"Новый запрос:\nКатегория: {category}\nТип идентификатора: {identifier_type}\nЗначение: {identifier}"
+        await context.bot.send_message(chat_id=GROUP_ID, text=message)
+        await update.message.reply_text("Ваш запрос отправлен поставщикам! Ожидайте ответа.", reply_markup=get_main_keyboard())
+        del context.user_data['category']
+        del context.user_data['identifier_type']
+    elif 'free_request' in context.user_data:
+        message = f"Новый свободный запрос от чата {chat_id}:\n{text}"
+        await context.bot.send_message(chat_id=GROUP_ID, text=message)
+        await update.message.reply_text("Ваш запрос отправлен! Ожидайте ответа.", reply_markup=get_main_keyboard())
+        del context.user_data['free_request']
+
+def main():
+    app = Application.builder().token(TOKEN).build()app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_input))
+
+    print("Бот запущен...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
