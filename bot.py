@@ -3,6 +3,7 @@ import logging
 import time
 import json
 import threading
+import asyncio
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -33,11 +34,12 @@ def home():
 def run_web_server():
     # Render сам устанавливает переменную окружения PORT, которую нужно использовать
     port = int(os.environ.get("PORT", 5000))
+    logger.info(f"Starting web server on port {port}")
     # Запускаем сервер. Важно: host='0.0.0.0' - слушаем все входящие подключения
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 # Конфигурация
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8091371448:AAF7eynXFflA4VO3lz7a1vHREN0tM81FOl4')
+TOKEN = os.getenv('TOKEN', '8091371448:AAF7eynXFflA4VO3lz7a1vHREN0tM81FOl4')
 GROUP_ID = int(os.getenv('TELEGRAM_GROUP_ID', '-1002789329715'))
 
 # Состояния для ConversationHandler
@@ -72,16 +74,21 @@ def get_main_keyboard():
 def get_cancel_keyboard():
     return InlineKeyboardMarkup([[InlineKeyboardButton("Отмена", callback_data="cancel")]])
 
-# Функции для работы с новостями
+# Функции для работы с новостей
+def get_news_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'news.json')
+
 def load_news():
     try:
-        with open('news.json', 'r', encoding='utf-8') as f:
+        news_path = get_news_path()
+        with open(news_path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return []
 
 def save_news(news):
-    with open('news.json', 'w', encoding='utf-8') as f:
+    news_path = get_news_path()
+    with open(news_path, 'w', encoding='utf-8') as f:
         json.dump(news, f, ensure_ascii=False, indent=4)
 
 # Вспомогательные функции
@@ -94,7 +101,7 @@ async def cancel_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            "❌ Запрос отменён. Выберите категориу:",
+            "❌ Запрос отменён. Выберите категорию:",
             reply_markup=get_main_keyboard()
         )
 
@@ -102,8 +109,7 @@ async def send_to_group(context: ContextTypes.DEFAULT_TYPE, message: str, photo=
     logger.info(f"Sending to group {GROUP_ID}: {message}")
     try:
         full_message = f"Запрос #{request_id} из категории '{category}' от @{username if username else 'неизвестный'}:\n{message}"
-        sent = await context.bot.send_message(chat_id=GROUP_ID, text=full_message)
-        logger.info(f"Message sent successfully, message_id: {sent.message_id}")
+        await context.bot.send_message(chat_id=GROUP_ID, text=full_message)
         if photo:
             await context.bot.send_photo(chat_id=GROUP_ID, photo=photo[-1].file_id)
         if document:
@@ -120,7 +126,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     logger.info(f"Received /start from chat_id: {chat_id}")
     await update.message.reply_text(
-        f"Добро пожаловать в 'Товары из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
+        "Добро пожаловать в 'Товары из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
         reply_markup=get_main_keyboard()
     )
 
@@ -152,9 +158,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "news_feed":
         news = load_news()
         if not news:
-            message = "Пока новостей нет. Проверьте позже!"
             await query.edit_message_text(
-                message,
+                "Пока новостей нет. Проверьте позже!",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_main")]])
             )
         else:
@@ -163,11 +168,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_main")]])
             )
             for item in news:
-                await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=f"- {item['text']}"
-                )
-                if item['photo']:
+                if item.get('text'):
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"- {item['text']}"
+                    )
+                if item.get('photo'):
                     await context.bot.send_photo(
                         chat_id=query.message.chat_id,
                         photo=item['photo']
@@ -182,24 +188,28 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data.startswith("category_"):
-        category = next((cat[0] for cat in [
-            ("Автомобильные товары", "auto"),
-            ("Мотоциклы и питбайки", "moto"),
-            ("Игрушки", "toys"),
-            ("Сумки", "bags"),
-            ("Одежда", "clothes"),
-            ("Спортивный инвентарь", "sport"),
-            ("Электроника", "electronics"),
-            ("Бытовая техника", "appliances"),
-            ("Домашний декор", "decor"),
-            ("Красота и здоровье", "beauty"),
-            ("Ювелирка и аксессуары", "jewelry"),
-            ("Инструменты и оборудование", "tools"),
-            ("Офисные товары", "office"),
-            ("Детские товары", "kids"),
-            ("Станки и механизмы", "machinery")
-        ] if cat[1] == data.replace("category_", "")), "Неизвестно")
+        category_map = {
+            "auto": "Автомобильные товары",
+            "moto": "Мотоциклы и питбайки",
+            "toys": "Игрушки",
+            "bags": "Сумки",
+            "clothes": "Одежда",
+            "sport": "Спортивный инвентарь",
+            "electronics": "Электроника",
+            "appliances": "Бытовая техника",
+            "decor": "Домашний декор",
+            "beauty": "Красота и здоровье",
+            "jewelry": "Ювелирка и аксессуары",
+            "tools": "Инструменты и оборудование",
+            "office": "Офисные товары",
+            "kids": "Детские товары",
+            "machinery": "Станки и механизмы"
+        }
+        
+        category_key = data.replace("category_", "")
+        category = category_map.get(category_key, "Неизвестно")
         context.user_data['category'] = category
+        
         if category == "Автомобильные товары":
             await query.edit_message_text(
                 f"Вы выбрали категорию: {category}\nРекомендации: укажите VIN, номер кузова, марку, модель, год. Это ускорит поиск!\nОпишите ваш запрос:",
@@ -237,36 +247,38 @@ async def get_news_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHOTO_OR_DOC
 
 async def get_news_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1].file_id if update.message.photo else None
-    document = update.message.document.file_id if update.message.document else None
-    if update.message.text == "/skip" or (not photo and not document):
+    if update.message.text and update.message.text.lower() == "/skip":
         photo = None
         document = None
     else:
-        context.user_data['news_photo'] = photo
-        context.user_data['news_document'] = document
+        photo = update.message.photo[-1].file_id if update.message.photo else None
+        document = update.message.document.file_id if update.message.document else None
 
     news = load_news()
     news.append({
         "text": context.user_data['news_text'],
-        "photo": context.user_data.get('news_photo'),
-        "document": context.user_data.get('news_document'),
+        "photo": photo,
+        "document": document,
         "timestamp": time.time()
     })
     save_news(news)
     await update.message.reply_text(
-        f"✅ Новость '{context.user_data['news_text']}' добавлена в раздел Новости/Отгрузки."
+        f"✅ Новость добавлена в раздел Новости/Отгрузки."
     )
     context.user_data.clear()
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❌ Добавление новости отменено.",
         reply_markup=get_main_keyboard()
     )
     context.user_data.clear()
     return ConversationHandler.END
+
+# Обработчик команды /cancel
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await cancel_request(update, context)
 
 # Настройка ConversationHandler для добавления новостей
 news_conv_handler = ConversationHandler(
@@ -279,7 +291,7 @@ news_conv_handler = ConversationHandler(
             CommandHandler("skip", get_news_photo_or_doc)
         ]
     },
-    fallbacks=[CommandHandler("cancel", cancel)]
+    fallbacks=[CommandHandler("cancel", cancel_news)]
 )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,32 +354,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data.clear()
         return
 
-# Запуск бота в отдельном потоке
+# Запуск бота в отдельном потоке с правильным event loop
 def run_bot():
-    application = Application.builder().token(TOKEN).build()
+    try:
+        logger.info("Starting Telegram bot...")
+        
+        # Создаем новый event loop для этого потока
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        application = Application.builder().token(TOKEN).build()
 
-    # Обработчики команд
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(news_conv_handler)
+        # Обработчики команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("cancel", cancel_command))
+        application.add_handler(news_conv_handler)
 
-    # Обработчики callback и сообщений
-    application.add_handler(CallbackQueryHandler(handle_button))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_message))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
+        # Обработчики callback и сообщений
+        application.add_handler(CallbackQueryHandler(handle_button))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_message))
+        application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
 
-    # Запуск
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Запуск
+        logger.info("Bot starting polling...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        
+    except Exception as e:
+        logger.error(f"Error in bot thread: {e}")
+        raise
 
 # Главная функция запуска
 def main():
+    logger.info("Application starting...")
+    
     # Запускаем бота в отдельном потоке
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.daemon = True  # Поток завершится, если завершится основной
+    bot_thread = threading.Thread(target=run_bot, name="BotThread")
+    bot_thread.daemon = True
     bot_thread.start()
     
+    logger.info("Bot thread started, starting web server...")
+    
     # Запускаем веб-сервер в основном потоке
-    # Это заблокирует выполнение, что и нужно - сервер будет работать постоянно
     run_web_server()
 
 if __name__ == '__main__':
