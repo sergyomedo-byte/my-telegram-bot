@@ -43,40 +43,60 @@ def run_health_server():
         httpd.serve_forever()
 
 # Конфигурация
-TOKEN = os.getenv('TOKEN', '8091371448:AAF7eynXFflA4VO3lz7a1vHREN0tM81FOl4')
+TOKEN = os.getenv('TOKEN', '8091371448:AAERHwxB8CseSenyfCoHPuk-Y2BmNSo5kmU')
 GROUP_ID = int(os.getenv('TELEGRAM_GROUP_ID', '-1002789329715'))
 
 # Состояния для ConversationHandler
 TEXT, PHOTO_OR_DOC = range(2)
 
-# Клавиатуры
+# Главное меню
 def get_main_keyboard():
-    categories = [
-        ("Автомобильные товары", "auto"),
-        ("Мотоциклы и питбайки", "moto"),
-        ("Игрушки", "toys"),
-        ("Сумки", "bags"),
-        ("Одежда", "clothes"),
-        ("Спортивный инвентарь", "sport"),
-        ("Электроника", "electronics"),
-        ("Бытовая техника", "appliances"),
-        ("Домашний декор", "decor"),
-        ("Красота и здоровье", "beauty"),
-        ("Ювелирка и аксессуары", "jewelry"),
-        ("Инструменты и оборудование", "tools"),
-        ("Офисные товары", "office"),
-        ("Детские товары", "kids"),
-        ("Станки и механизмы", "machinery")
+    keyboard = [
+        [InlineKeyboardButton("1. 🛍️ Выбор товара", callback_data="product_selection")],
+        [InlineKeyboardButton("2. ❓ Помощь", callback_data="help")],
+        [InlineKeyboardButton("3. 📞 Контакты", callback_data="contacts")],
+        [InlineKeyboardButton("4. 📢 Новости/Отгрузки", callback_data="news_feed")]
     ]
-    buttons = [[InlineKeyboardButton(cat[0], callback_data=f"category_{cat[1]}")] for cat in categories]
-    buttons.append([InlineKeyboardButton("Другие товары", callback_data="other_items")])
-    buttons.append([InlineKeyboardButton("Помощь", callback_data="help")])
-    buttons.append([InlineKeyboardButton("Контакты", callback_data="contacts")])
-    buttons.append([InlineKeyboardButton("Новости/Отгрузки", callback_data="news_feed")])
+    return InlineKeyboardMarkup(keyboard)
+
+# Меню выбора категорий товаров
+def get_categories_keyboard():
+    categories = [
+        ("🚗 Автомобильные товары", "auto"),
+        ("🏍️ Мотоциклы и питбайки", "moto"),
+        ("🧸 Игрушки", "toys"),
+        ("👜 Сумки", "bags"),
+        ("👕 Одежда", "clothes"),
+        ("⚽ Спортивный инвентарь", "sport"),
+        ("📱 Электроника", "electronics"),
+        ("🏠 Бытовая техника", "appliances"),
+        ("🏠 Домашний декор", "decor"),
+        ("💄 Красота и здоровье", "beauty"),
+        ("💍 Ювелирка и аксессуары", "jewelry"),
+        ("🛠️ Инструменты и оборудование", "tools"),
+        ("📊 Офисные товары", "office"),
+        ("🧒 Детские товары", "kids"),
+        ("⚙️ Станки и механизмы", "machinery"),
+        ("📦 Другие товары", "other_items")
+    ]
+    
+    # Создаем кнопки по 2 в ряд
+    buttons = []
+    for i in range(0, len(categories), 2):
+        row = []
+        if i < len(categories):
+            row.append(InlineKeyboardButton(categories[i][0], callback_data=f"category_{categories[i][1]}"))
+        if i + 1 < len(categories):
+            row.append(InlineKeyboardButton(categories[i+1][0], callback_data=f"category_{categories[i+1][1]}"))
+        buttons.append(row)
+    
+    # Добавляем кнопку "Назад" в главное меню
+    buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_main")])
+    
     return InlineKeyboardMarkup(buttons)
 
 def get_cancel_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("Отмена", callback_data="cancel")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отмена", callback_data="cancel")]])
 
 # Функции для работы с новостями
 def get_news_path():
@@ -100,12 +120,12 @@ async def cancel_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     if update.callback_query:
         await update.callback_query.edit_message_text(
-            "❌ Запрос отменён. Выберите категорию:",
+            "❌ Запрос отменён.",
             reply_markup=get_main_keyboard()
         )
     else:
         await update.message.reply_text(
-            "❌ Запрос отменён. Выберите категорию:",
+            "❌ Запрос отменён.",
             reply_markup=get_main_keyboard()
         )
 
@@ -129,10 +149,18 @@ async def send_to_group(context: ContextTypes.DEFAULT_TYPE, message: str, photo=
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     logger.info(f"Received /start from chat_id: {chat_id}")
-    await update.message.reply_text(
-        "Добро пожаловать в 'Товары из Китая' — ваш надежный партнер для импорта из Китая. Мы специализируемся на автомобильной индустрии, но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов. Быстрая коммуникация с поставщиками, выгодные цены и удобная доставка. Опишите товар, приложите фото/видео или укажите код — и мы найдём лучшее предложение!\n\nМы открыты для сотрудничества с автосервисами, магазинами и предпринимателями. Ваши идеи по улучшению приветствуем в 'Помощь'. Начните заказ прямо сейчас — ваш товар уже ждет!",
-        reply_markup=get_main_keyboard()
+    
+    welcome_text = (
+        "Добро пожаловать в 'Товары из Китая'! 🛒\n\n"
+        "Мы ваш надежный партнер для импорта из Китая. Специализируемся на автомобильной индустрии, "
+        "но можем привезти абсолютно всё: от запчастей и станков до игрушек.\n\n"
+        "🚀 Быстрая коммуникация с поставщиками\n"
+        "💰 Выгодные цены\n"
+        "📦 Удобная доставка\n\n"
+        "Выберите раздел в меню ниже:"
     )
+    
+    await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -144,18 +172,39 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cancel_request(update, context)
         return
 
+    if data == "back_to_main":
+        await query.edit_message_text(
+            "Главное меню:",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    if data == "product_selection":
+        await query.edit_message_text(
+            "🏪 Выберите категорию товара:",
+            reply_markup=get_categories_keyboard()
+        )
+        return
+
     if data == "help":
         await query.edit_message_text(
-            "Опишите вашу проблему или предложение:",
+            "❓ Опишите вашу проблему или предложение:",
             reply_markup=get_cancel_keyboard()
         )
         context.user_data['help_request'] = True
         return
 
     if data == "contacts":
+        contacts_text = (
+            "📞 Наши контакты:\n\n"
+            "🌐 Сайт: yuemo-logistics.ru\n"
+            "📱 WhatsApp: +86 153 2332 5277\n"
+            "✉️ Email: info@yuemo-logistics.ru\n\n"
+            "🕒 Время работы: 24/7"
+        )
         await query.edit_message_text(
-            "Контакты: yuemo-logistics.ru, WhatsApp +86 153 2332 5277",
-            reply_markup=get_main_keyboard()
+            contacts_text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_main")]])
         )
         return
 
@@ -163,19 +212,19 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         news = load_news()
         if not news:
             await query.edit_message_text(
-                "Пока новостей нет. Проверьте позже!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_main")]])
+                "📢 Пока новостей нет. Проверьте позже!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_main")]])
             )
         else:
             await query.edit_message_text(
-                "🔹 Новости и отгрузки:",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_main")]])
+                "📢 Последние новости и отгрузки:",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_main")]])
             )
             for item in news:
                 if item.get('text'):
                     await context.bot.send_message(
                         chat_id=query.message.chat_id,
-                        text=f"- {item['text']}"
+                        text=f"📅 {item['text']}"
                     )
                 if item.get('photo'):
                     await context.bot.send_photo(
@@ -184,69 +233,67 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
         return
 
-    if data == "back_to_main":
-        await query.edit_message_text(
-            "Выберите категорию:",
-            reply_markup=get_main_keyboard()
-        )
-        return
-
     if data.startswith("category_"):
         category_map = {
-            "auto": "Автомобильные товары",
-            "moto": "Мотоциклы и питбайки",
-            "toys": "Игрушки",
-            "bags": "Сумки",
-            "clothes": "Одежда",
-            "sport": "Спортивный инвентарь",
-            "electronics": "Электроника",
-            "appliances": "Бытовая техника",
-            "decor": "Домашний декор",
-            "beauty": "Красота и здоровье",
-            "jewelry": "Ювелирка и аксессуары",
-            "tools": "Инструменты и оборудование",
-            "office": "Офисные товары",
-            "kids": "Детские товары",
-            "machinery": "Станки и механизмы"
+            "auto": "🚗 Автомобильные товары",
+            "moto": "🏍️ Мотоциклы и питбайки",
+            "toys": "🧸 Игрушки",
+            "bags": "👜 Сумки",
+            "clothes": "👕 Одежда",
+            "sport": "⚽ Спортивный инвентарь",
+            "electronics": "📱 Электроника",
+            "appliances": "🏠 Бытовая техника",
+            "decor": "🏠 Домашний декор",
+            "beauty": "💄 Красота и здоровье",
+            "jewelry": "💍 Ювелирка и аксессуары",
+            "tools": "🛠️ Инструменты и оборудование",
+            "office": "📊 Офисные товары",
+            "kids": "🧒 Детские товары",
+            "machinery": "⚙️ Станки и механизмы",
+            "other_items": "📦 Другие товары"
         }
         
         category_key = data.replace("category_", "")
-        category = category_map.get(category_key, "Неизвестно")
+        category = category_map.get(category_key, "📦 Неизвестная категория")
         context.user_data['category'] = category
         
-        if category == "Автомобильные товары":
+        if category == "🚗 Автомобильные товары":
             await query.edit_message_text(
-                f"Вы выбрали категорию: {category}\nРекомендации: укажите VIN, номер кузова, марку, модель, год. Это ускорит поиск!\nОпишите ваш запрос:",
+                f"Вы выбрали: {category}\n\n"
+                "🔍 Рекомендации для быстрого поиска:\n"
+                "• VIN номер\n"
+                "• Номер кузова\n" 
+                "• Марка и модель\n"
+                "• Год выпуска\n"
+                "• Код запчасти\n\n"
+                "📝 Опишите ваш запрос или приложите фото:",
                 reply_markup=get_cancel_keyboard()
             )
         else:
             await query.edit_message_text(
-                f"Вы выбрали категорию: {category}\nРекомендации: укажите ключевые идентификаторы (код, артикул) или приложите фото/видео. Это ускорит поиск!\nОпишите ваш запрос:",
+                f"Вы выбрали: {category}\n\n"
+                "🔍 Рекомендации для быстрого поиска:\n"
+                "• Код товара или артикул\n"
+                "• Фотографии товара\n"
+                "• Видео обзор\n"
+                "• Технические характеристики\n\n"
+                "📝 Опишите ваш запрос или приложите фото:",
                 reply_markup=get_cancel_keyboard()
             )
-        context.user_data['free_request'] = True
-        return
-
-    if data == "other_items":
-        context.user_data['category'] = "Другие товары"
-        await query.edit_message_text(
-            "Вы выбрали категорию: Другие товары\nРекомендации: укажите описание, код или приложите фото/видео. Это ускорит поиск!\nОпишите ваш запрос:",
-            reply_markup=get_cancel_keyboard()
-        )
         context.user_data['free_request'] = True
         return
 
 # Обработчик для добавления новостей
 async def start_add_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Введите текст новости (или отправьте /cancel для отмены):"
+        "📝 Введите текст новости (или отправьте /cancel для отмены):"
     )
     return TEXT
 
 async def get_news_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['news_text'] = update.message.text
     await update.message.reply_text(
-        "Теперь отправьте фото (или документ, если нужно). Если не хотите, просто отправьте /skip:"
+        "📸 Теперь отправьте фото (или документ, если нужно). Если не хотите, просто отправьте /skip:"
     )
     return PHOTO_OR_DOC
 
@@ -267,7 +314,8 @@ async def get_news_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TY
     })
     save_news(news)
     await update.message.reply_text(
-        f"✅ Новость добавлена в раздел Новости/Отгрузки."
+        "✅ Новость добавлена в раздел Новости/Отгрузки.",
+        reply_markup=get_main_keyboard()
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -313,7 +361,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_data.get('help_request'):
         if not text and not photo and not document:
             await update.message.reply_text(
-                "Пожалуйста, опишите проблему или предложение.",
+                "📝 Пожалуйста, опишите проблему или предложение.",
                 reply_markup=get_cancel_keyboard()
             )
             return
@@ -321,7 +369,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await send_to_group(context, message, photo, document, username)
             await update.message.reply_text(
-                "✅ Ваш запрос помощи отправлен. Ожидайте ответа.",
+                "✅ Ваш запрос помощи отправлен. Ожидайте ответа в ближайшее время.",
                 reply_markup=get_main_keyboard()
             )
         except Exception as e:
@@ -336,17 +384,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_data.get('free_request'):
         if not text and not photo and not document:
             await update.message.reply_text(
-                "Пожалуйста, добавьте описание, фото или документ к вашему запросу.",
+                "📝 Пожалуйста, добавьте описание, фото или документ к вашему запросу.",
                 reply_markup=get_cancel_keyboard()
             )
             return
         request_id = int(time.time())
         category = user_data.get('category', 'Неизвестно')
-        message = f"Свободный запрос из категории '{category}' от пользователя:\n{text}"
+        message = f"Запрос из категории '{category}' от @{username}:\n{text}"
         try:
             await send_to_group(context, message, photo, document, username, request_id, category)
             await update.message.reply_text(
-                f"✅ Ваш запрос #{request_id} отправлен поставщикам! Он будет скоро обработан.",
+                f"✅ Ваш запрос #{request_id} отправлен поставщикам!\n\n"
+                "⚡ Будет обработан в ближайшее время.\n"
+                "📞 Мы свяжемся с вами для уточнения деталей.",
                 reply_markup=get_main_keyboard()
             )
         except Exception as e:
