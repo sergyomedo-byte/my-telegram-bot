@@ -153,7 +153,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "Добро пожаловать в 'Товары из Китая'! 🛒\n\n"
         "Мы ваш надежный партнер для импорта из Китая. Специализируемся на автомобильной индустрии, "
-        "но можем привезти абсолютно всё: от запчастей и станков до игрушек.\n\n"
+        "но можем заказать абсолютно всё: от запчастей до станков и коммерческих механизмов.\n\n"
         "🚀 Быстрая коммуникация с поставщиками\n"
         "💰 Выгодные цены\n"
         "📦 Удобная доставка\n\n"
@@ -173,8 +173,17 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "back_to_main":
-        await query.edit_message_text(
-            "Главное меню:",
+        # Очищаем чат от предыдущих сообщений перед возвратом в главное меню
+        try:
+            # Пытаемся удалить сообщение с кнопками новостей
+            await context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
+        except:
+            pass  # Если не получилось удалить - ничего страшного
+        
+        # Отправляем чистое главное меню
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Главное меню:",
             reply_markup=get_main_keyboard()
         )
         return
@@ -216,10 +225,13 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_main")]])
             )
         else:
+            # Сначала редактируем текущее сообщение
             await query.edit_message_text(
                 "📢 Последние новости и отгрузки:",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_main")]])
             )
+            
+            # Затем отправляем новости отдельными сообщениями
             for item in news:
                 if item.get('text'):
                     await context.bot.send_message(
